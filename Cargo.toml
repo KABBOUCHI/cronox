@@ -1,0 +1,21 @@
+[package]
+name = "cronox"
+version = "0.0.1"
+edition = "2024"
+authors = ["Georges KABBOUCHI <georges.kabbouchi@gmail.com>"]
+keywords = ["cron", "scheduler", "async"]
+license = "MIT OR Apache-2.0"
+description = "A elegant and efficient asynchronous scheduler for Rust"
+repository = "https://github.com/KABBOUCHI/cronox"
+
+[dependencies]
+chrono = "0.4.41"
+cron = "0.15.0"
+futures = "0.3.31"
+tokio = { version = "1.47.1", features = [
+    "macros",
+    "rt",
+    "time",
+    "rt-multi-thread",
+    "signal",
+]}

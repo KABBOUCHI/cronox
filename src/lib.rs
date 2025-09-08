@@ -17,9 +17,15 @@ pub enum ScheduleType {
 }
 
 #[derive(Clone)]
+pub struct ScheduleOptions {
+    skip: Skip,
+}
+
+#[derive(Clone)]
 pub struct Schedule {
     cron: Arc<Mutex<cron::Schedule>>,
     typ: ScheduleType,
+    options: Arc<Mutex<ScheduleOptions>>,
 }
 
 impl Schedule {
@@ -52,6 +58,9 @@ impl Schedule {
         Schedule {
             cron: Arc::new(Mutex::new("0 * * * * *".parse().unwrap())),
             typ: ScheduleType::ScheduleCallback(callback_arc),
+            options: Arc::new(Mutex::new(ScheduleOptions {
+                skip: Skip::Boolean(false),
+            })),
         }
     }
 
@@ -59,6 +68,9 @@ impl Schedule {
         Schedule {
             cron: Arc::new(Mutex::new("0 * * * * *".parse().unwrap())),
             typ: ScheduleType::ScheduleCommand(name, args),
+            options: Arc::new(Mutex::new(ScheduleOptions {
+                skip: Skip::Boolean(false),
+            })),
         }
     }
 }
@@ -132,6 +144,7 @@ impl Scheduler<DefaultContext> {
             timezone: self.timezone.clone(),
         }
     }
+
     pub async fn run(&mut self) {
         loop {
             tokio::select! {
@@ -144,6 +157,12 @@ impl Scheduler<DefaultContext> {
                     let mut tasks = Vec::new();
 
                     for schedule in &mut self.schedules {
+                        let options = schedule.options.lock().unwrap();
+
+                        if options.skip.should_skip().await {
+                            continue;
+                        }
+
                         let cron = schedule.cron.lock().unwrap();
                         if let Some(next) = cron.upcoming(Utc).next() {
                             let diff = next.signed_duration_since(now);
@@ -258,5 +277,50 @@ impl Scheduler<ScheduleIndex> {
 
     pub fn every_thirty_minutes(&mut self) -> &mut Self {
         self.every_minutes(30)
+    }
+
+    pub fn skip(&mut self, skip: impl Into<Skip>) -> &mut Self {
+        let index = self.index();
+
+        {
+            let mut options = self.schedules[index].options.lock().unwrap();
+            options.skip = skip.into();
+        }
+
+        self
+    }
+}
+#[derive(Clone)]
+pub enum Skip {
+    Boolean(bool),
+    AsyncFn(Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send + Sync>> + Send + Sync>),
+}
+
+impl Skip {
+    pub async fn should_skip(&self) -> bool {
+        match self {
+            Skip::Boolean(value) => *value,
+            Skip::AsyncFn(f) => f().await,
+        }
+    }
+}
+
+impl From<bool> for Skip {
+    fn from(value: bool) -> Self {
+        Skip::Boolean(value)
+    }
+}
+
+impl<Fut, F> From<F> for Skip
+where
+    Fut: Future<Output = bool> + Send + Sync + 'static,
+    F: Fn() -> Fut + Send + Sync + 'static,
+{
+    fn from(f: F) -> Self {
+        let arc = Arc::new(
+            move || -> Pin<Box<dyn Future<Output = bool> + Send + Sync>> { Box::pin(f()) },
+        );
+
+        Skip::AsyncFn(arc)
     }
 }

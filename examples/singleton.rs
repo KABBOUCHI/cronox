@@ -16,7 +16,15 @@ async fn main() {
         println!("Every minute! Time: {}", chrono::Utc::now());
     });
 
-    Schedule::command("ls", vec!["-l"]).every_ten_seconds();
+    Schedule::call(async || println!("Should be Skipped!"))
+        .every_ten_seconds()
+        .skip(true);
+
+    Schedule::call(async || {
+        println!("Not Skipped");
+    })
+    .every_ten_seconds()
+    .skip(async || false);
 
     Schedule::run().await;
 }

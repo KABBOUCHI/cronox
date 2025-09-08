@@ -51,13 +51,9 @@ impl Schedule {
         F: Fn() -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + Sync + 'static,
     {
-        let callback_arc = Arc::new(move || -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
-            Box::pin(callback())
-        });
-
         Schedule {
             cron: Arc::new(Mutex::new("0 * * * * *".parse().unwrap())),
-            typ: ScheduleType::ScheduleCallback(callback_arc),
+            typ: ScheduleType::ScheduleCallback(Arc::new(move || Box::pin(callback()))),
             options: Arc::new(Mutex::new(ScheduleOptions {
                 skip: Skip::Boolean(false),
             })),
@@ -311,16 +307,12 @@ impl From<bool> for Skip {
     }
 }
 
-impl<Fut, F> From<F> for Skip
+impl<F, Fut> From<F> for Skip
 where
-    Fut: Future<Output = bool> + Send + Sync + 'static,
     F: Fn() -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = bool> + Send + Sync + 'static,
 {
     fn from(f: F) -> Self {
-        let arc = Arc::new(
-            move || -> Pin<Box<dyn Future<Output = bool> + Send + Sync>> { Box::pin(f()) },
-        );
-
-        Skip::AsyncFn(arc)
+        Skip::AsyncFn(Arc::new(move || Box::pin(f())))
     }
 }

@@ -28,10 +28,15 @@ impl Schedule {
         res
     }
 
-    pub fn command(name: impl Into<String>, args: Vec<String>) -> Scheduler<ScheduleIndex> {
+    pub fn command(
+        name: impl Into<String>,
+        args: Vec<impl Into<String>>,
+    ) -> Scheduler<ScheduleIndex> {
         let mut scheduler = Self::get_instance()
             .write()
             .expect("Failed to acquire write lock");
+
+        let args: Vec<String> = args.into_iter().map(|arg| arg.into()).collect();
 
         let res = scheduler.command(name.into(), args);
 

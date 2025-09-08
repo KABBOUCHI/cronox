@@ -25,8 +25,12 @@ pub struct Schedule {
 impl Schedule {
     async fn run(&mut self) {
         match &self.typ {
-            ScheduleType::ScheduleCommand(_name, _args) => {
-                todo!();
+            ScheduleType::ScheduleCommand(name, args) => {
+                let mut cmd = tokio::process::Command::new(name);
+                cmd.args(args);
+                cmd.stdout(std::process::Stdio::null());
+                cmd.stderr(std::process::Stdio::null());
+                let _ = cmd.spawn();
             }
             ScheduleType::ScheduleCallback(callback) => {
                 (callback)().await;

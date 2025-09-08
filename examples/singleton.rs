@@ -16,5 +16,7 @@ async fn main() {
         println!("Every minute! Time: {}", chrono::Utc::now());
     });
 
+    Schedule::command("ls", vec!["-l"]).every_ten_seconds();
+
     Schedule::run().await;
 }

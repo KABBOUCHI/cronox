@@ -18,7 +18,6 @@ pub enum ScheduleType {
 
 #[derive(Clone)]
 pub struct Schedule {
-    expression: Arc<Mutex<String>>,
     cron: Arc<Mutex<cron::Schedule>>,
     typ: ScheduleType,
 }
@@ -47,7 +46,6 @@ impl Schedule {
         });
 
         Schedule {
-            expression: Arc::new(Mutex::new("0 * * * * *".to_string())),
             cron: Arc::new(Mutex::new("0 * * * * *".parse().unwrap())),
             typ: ScheduleType::ScheduleCallback(callback_arc),
         }
@@ -55,7 +53,6 @@ impl Schedule {
 
     pub fn from_command(name: String, args: Vec<String>) -> Schedule {
         Schedule {
-            expression: Arc::new(Mutex::new("0 * * * * *".to_string())),
             cron: Arc::new(Mutex::new("0 * * * * *".parse().unwrap())),
             typ: ScheduleType::ScheduleCommand(name, args),
         }
@@ -186,14 +183,14 @@ impl Scheduler<ScheduleIndex> {
 
     fn expression(&self) -> String {
         let index = self.index();
-        let expression = self.schedules[index].expression.lock().unwrap();
-        expression.clone()
+        let cron = self.schedules[index].cron.lock().unwrap();
+
+        cron.to_string()
     }
 
     pub fn cron(&mut self, expression: &str) -> &mut Self {
         let index = self.index();
 
-        *self.schedules[index].expression.lock().unwrap() = expression.to_string();
         *self.schedules[index].cron.lock().unwrap() = expression.parse().unwrap();
 
         self

@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 
 pub mod facade;
 
@@ -19,6 +19,8 @@ pub enum ScheduleType {
 #[derive(Clone)]
 pub struct ScheduleOptions {
     skip: Skip,
+    immediate: bool,
+    immediate_triggered: bool,
 }
 
 #[derive(Clone)]
@@ -43,6 +45,41 @@ impl Schedule {
             }
         }
     }
+
+    async fn run_next(&mut self, date: DateTime<Utc>) {
+        let mut options = self.options.lock().unwrap();
+
+        if options.skip.should_skip().await {
+            return;
+        }
+
+        if options.immediate && !options.immediate_triggered {
+            options.immediate_triggered = true;
+
+            let mut schedule_clone = self.clone();
+
+            tokio::spawn(async move {
+                schedule_clone.run().await;
+            });
+
+            return;
+        }
+
+        let cron = self.cron.lock().unwrap();
+
+        if let Some(next) = cron.upcoming(Utc).next() {
+            let diff = next.signed_duration_since(date);
+            if diff.num_seconds() <= 0 && diff.num_seconds() > -1 {
+                drop(cron);
+
+                let mut schedule_clone = self.clone();
+
+                tokio::spawn(async move {
+                    schedule_clone.run().await;
+                });
+            }
+        }
+    }
 }
 
 impl Schedule {
@@ -56,6 +93,8 @@ impl Schedule {
             typ: ScheduleType::ScheduleCallback(Arc::new(move || Box::pin(callback()))),
             options: Arc::new(Mutex::new(ScheduleOptions {
                 skip: Skip::Boolean(false),
+                immediate: false,
+                immediate_triggered: false,
             })),
         }
     }
@@ -66,6 +105,8 @@ impl Schedule {
             typ: ScheduleType::ScheduleCommand(name, args),
             options: Arc::new(Mutex::new(ScheduleOptions {
                 skip: Skip::Boolean(false),
+                immediate: false,
+                immediate_triggered: false,
             })),
         }
     }
@@ -150,30 +191,9 @@ impl Scheduler<DefaultContext> {
                 _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
                     let now = Utc::now();
 
-                    let mut tasks = Vec::new();
 
                     for schedule in &mut self.schedules {
-                        let options = schedule.options.lock().unwrap();
-
-                        if options.skip.should_skip().await {
-                            continue;
-                        }
-
-                        let cron = schedule.cron.lock().unwrap();
-                        if let Some(next) = cron.upcoming(Utc).next() {
-                            let diff = next.signed_duration_since(now);
-                            if diff.num_seconds() <= 0 && diff.num_seconds() > -1 {
-                                drop(cron);
-                                let mut schedule_clone = schedule.clone();
-                                tasks.push(tokio::spawn(async move {
-                                    schedule_clone.run().await;
-                                }));
-                            }
-                        }
-                    }
-
-                    if !tasks.is_empty() {
-                        let _ = futures::future::join_all(tasks).await;
+                        schedule.run_next(now).await;
                     }
                 }
             }
@@ -281,6 +301,21 @@ impl Scheduler<ScheduleIndex> {
         {
             let mut options = self.schedules[index].options.lock().unwrap();
             options.skip = skip.into();
+        }
+
+        self
+    }
+
+    pub fn immediately(&mut self) -> &mut Self {
+        self.immediate(true)
+    }
+
+    pub fn immediate(&mut self, immediate: bool) -> &mut Self {
+        let index = self.index();
+
+        {
+            let mut options = self.schedules[index].options.lock().unwrap();
+            options.immediate = immediate;
         }
 
         self

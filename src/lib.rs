@@ -21,6 +21,8 @@ pub struct ScheduleOptions {
     skip: Skip,
     immediate: bool,
     immediate_triggered: bool,
+    without_overlapping: bool,
+    locked: bool,
 }
 
 #[derive(Clone)]
@@ -65,6 +67,10 @@ impl Schedule {
             return;
         }
 
+        if options.locked {
+            return;
+        }
+
         let cron = self.cron.lock().unwrap();
 
         if let Some(next) = cron.upcoming(Utc).next() {
@@ -72,10 +78,16 @@ impl Schedule {
             if diff.num_seconds() <= 0 && diff.num_seconds() > -1 {
                 drop(cron);
 
+                if options.without_overlapping {
+                    options.locked = true;
+                }
+
                 let mut schedule_clone = self.clone();
 
                 tokio::spawn(async move {
                     schedule_clone.run().await;
+
+                    schedule_clone.options.lock().unwrap().locked = false
                 });
             }
         }
@@ -95,6 +107,8 @@ impl Schedule {
                 skip: Skip::Boolean(false),
                 immediate: false,
                 immediate_triggered: false,
+                without_overlapping: false,
+                locked: false,
             })),
         }
     }
@@ -107,6 +121,8 @@ impl Schedule {
                 skip: Skip::Boolean(false),
                 immediate: false,
                 immediate_triggered: false,
+                without_overlapping: false,
+                locked: false,
             })),
         }
     }
@@ -316,6 +332,17 @@ impl Scheduler<ScheduleIndex> {
         {
             let mut options = self.schedules[index].options.lock().unwrap();
             options.immediate = immediate;
+        }
+
+        self
+    }
+
+    pub fn without_overlapping(&mut self) -> &mut Self {
+        let index = self.index();
+
+        {
+            let mut options = self.schedules[index].options.lock().unwrap();
+            options.without_overlapping = true;
         }
 
         self
